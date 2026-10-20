@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field, model_validator
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LoginInput(BaseModel):
@@ -19,6 +21,28 @@ class OAuthSessionInput(BaseModel):
 class MobileExchangeInput(BaseModel):
     auth_code: str = Field(min_length=1, max_length=2048)
     code_verifier: str = Field(min_length=43, max_length=128, pattern=r"^[A-Za-z0-9._~-]+$")
+
+
+class MobileAdminSessionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=2048,
+        description="Deprecated; accepted for older clients but never used or stored.",
+    )
+
+
+class MobileAdminSessionTicketOutput(BaseModel):
+    ticket: str
+    expires_at: datetime
+
+
+class MobileAdminSessionExchangeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ticket: str = Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class AuthTokenOutput(BaseModel):

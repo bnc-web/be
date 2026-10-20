@@ -10,6 +10,7 @@ def service() -> AuthService:
     settings = SimpleNamespace(
         supabase_url="https://example.supabase.co",
         supabase_public_api_key="public-key",
+        supabase_admin_api_key="admin-key",
     )
     return AuthService(settings=settings)
 
@@ -59,3 +60,53 @@ def test_update_password_surfaces_provider_message(monkeypatch) -> None:
     )
     with pytest.raises(AuthProviderError, match="Password is too weak"):
         service().update_password("access-token", "weak")
+
+
+def test_admin_magic_link_creates_independent_web_session(monkeypatch) -> None:
+    requests = []
+
+    def admin_request(method, url, **kwargs):
+        requests.append((method, url, kwargs))
+        assert method == "POST"
+        assert url == "https://example.supabase.co/auth/v1/admin/generate_link"
+        assert kwargs["headers"]["apikey"] == "admin-key"
+        assert kwargs["json"] == {
+            "type": "magiclink",
+            "email": "admin@example.com",
+        }
+        return httpx.Response(200, json={"hashed_token": "one-time-hash"})
+
+    def verify_post(url, **kwargs):
+        assert url == "https://example.supabase.co/auth/v1/verify"
+        assert kwargs["headers"]["apikey"] == "public-key"
+        assert kwargs["json"] == {
+            "token_hash": "one-time-hash",
+            "type": "magiclink",
+        }
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "browser-access",
+                "refresh_token": "browser-refresh",
+                "expires_in": 3600,
+            },
+        )
+
+    monkeypatch.setattr(httpx, "request", admin_request)
+    monkeypatch.setattr(httpx, "post", verify_post)
+
+    session = service().create_independent_session("admin@example.com")
+
+    assert len(requests) == 1
+    assert session.access_token == "browser-access"
+    assert session.refresh_token == "browser-refresh"
+
+
+def test_logout_revokes_only_current_supabase_session(monkeypatch) -> None:
+    def post(url, **kwargs):
+        assert url == "https://example.supabase.co/auth/v1/logout"
+        assert kwargs["params"] == {"scope": "local"}
+        return httpx.Response(204)
+
+    monkeypatch.setattr(httpx, "post", post)
+    service().logout("browser-access")

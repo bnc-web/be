@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app.config.settings import Settings, get_settings
+from app.services.supabase_admin_service import SupabaseAdminError, SupabaseAdminService
 
 
 class AuthProviderError(Exception):
@@ -39,6 +40,7 @@ class SupabaseAuthService:
         try:
             httpx.post(
                 f"{self.settings.supabase_url.rstrip('/')}/auth/v1/logout",
+                params={"scope": "local"},
                 headers={
                     "apikey": api_key,
                     "Authorization": f"Bearer {access_token}",
@@ -107,7 +109,44 @@ class SupabaseAuthService:
             raise AuthProviderError(
                 self._error_message(response, "Password reset link is invalid or expired")
             )
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise AuthProviderError("Authentication service returned an invalid response") from exc
+        try:
+            return AuthSession(
+                access_token=data["access_token"],
+                refresh_token=data["refresh_token"],
+                expires_in=int(data.get("expires_in", 3600)),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AuthProviderError("Authentication service returned an invalid response") from exc
+
+    def create_independent_session(self, email: str) -> AuthSession:
+        if not self.settings.supabase_url or not self.settings.supabase_admin_api_key:
+            raise AuthProviderError("Supabase Admin API is not configured")
+        api_key = self.settings.supabase_public_api_key
+        if not api_key:
+            raise AuthProviderError("Supabase authentication is not configured")
+        try:
+            token_hash = SupabaseAdminService(self.settings).generate_magic_link_token(email)
+        except SupabaseAdminError as exc:
+            raise AuthProviderError("An independent browser session could not be created") from exc
+        try:
+            response = httpx.post(
+                f"{self.settings.supabase_url.rstrip('/')}/auth/v1/verify",
+                headers={"apikey": api_key, "Content-Type": "application/json"},
+                json={"token_hash": token_hash, "type": "magiclink"},
+                timeout=10,
+            )
+        except httpx.HTTPError as exc:
+            raise AuthProviderError("Authentication service is unavailable") from exc
+        if not response.is_success:
+            raise AuthProviderError("An independent browser session could not be created")
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise AuthProviderError("Authentication service returned an invalid response") from exc
         try:
             return AuthSession(
                 access_token=data["access_token"],

@@ -34,6 +34,11 @@ the CLI without changing repository visibility or upgrading the plan.
 Database migrations are applied explicitly with `python -m alembic upgrade head`;
 they do not run during builds or function startup. Migration 0023 enables RLS on
 backend-only tables; public Supabase API roles have no policies granting access.
+For Android-to-web admin handoff, apply migration 0024 before enabling the client
+flow. It uses the configured Supabase Admin API key to issue a separate browser
+session, so the native refresh token is not rotated. Keep Supabase's **Single
+session per user** setting disabled to allow the native app and browser to remain
+signed in concurrently; Supabase permits multiple active sessions by default.
 
 ## First free release limitations
 

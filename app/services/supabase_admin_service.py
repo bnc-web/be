@@ -71,6 +71,20 @@ class SupabaseAdminService:
             json={"email": email},
         )
 
+    def generate_magic_link_token(self, email: str) -> str:
+        response = self._request(
+            "POST",
+            "/auth/v1/admin/generate_link",
+            json={"type": "magiclink", "email": email},
+        )
+        try:
+            token_hash = response.json()["hashed_token"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SupabaseAdminError("Supabase returned an invalid magic-link response") from exc
+        if not isinstance(token_hash, str) or not token_hash:
+            raise SupabaseAdminError("Supabase returned an invalid magic-link response")
+        return token_hash
+
     def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         key = self.settings.supabase_admin_api_key
         if not key:
